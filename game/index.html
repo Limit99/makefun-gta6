@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Harbor: Vice Run</title>
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#0b1020; height:100%;
+    font-family:"Segoe UI", Verdana, Geneva, sans-serif; color:#fff; }
+  #game-canvas { position:fixed; inset:0; display:block; }
+  .hidden { display:none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:5; }
+  #hud-top-left { position:absolute; top:14px; left:14px; width:230px; }
+  .bar-label { font-size:11px; letter-spacing:2px; color:#ffe9b0; text-shadow:0 1px 3px #000; margin:4px 0 2px; }
+  .bar { height:12px; background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.5); border-radius:3px; overflow:hidden; }
+  .bar > div { height:100%; transition:width .15s; }
+  #health-fill { background:linear-gradient(90deg,#ff5470,#ff9e5e); width:100%; }
+  #armor-fill { background:linear-gradient(90deg,#4ecdc4,#7bf1e8); width:0%; }
+  #hud-top-right { position:absolute; top:12px; right:16px; text-align:right; }
+  #cash { font-size:26px; font-weight:700; color:#8dffa8; text-shadow:0 2px 4px #000; }
+  #stars { font-size:24px; letter-spacing:3px; color:#3a3f4a; text-shadow:0 1px 2px #000; }
+  #stars .lit { color:#ffd94d; }
+  #clock { font-size:13px; color:#ffe9b0; text-shadow:0 1px 3px #000; }
+  #weapon-box { position:absolute; right:16px; bottom:16px; text-align:right; text-shadow:0 1px 3px #000; }
+  #weapon-name { font-size:15px; letter-spacing:2px; color:#ffe9b0; }
+  #weapon-ammo { font-size:22px; font-weight:700; }
+  #objective-wrap { position:absolute; top:12px; left:50%; transform:translateX(-50%); width:min(560px,60vw);
+    text-align:center; }
+  #mission-title { font-size:13px; letter-spacing:3px; color:#ff9ecb; text-shadow:0 1px 3px #000; }
+  #objective { font-size:17px; font-weight:600; background:rgba(5,10,25,.55); border:1px solid rgba(255,255,255,.25);
+    border-radius:6px; padding:6px 12px; margin-top:3px; text-shadow:0 1px 2px #000; }
+  #minimap-wrap { position:absolute; left:14px; bottom:14px; width:184px; height:184px;
+    border:2px solid rgba(255,255,255,.55); border-radius:8px; overflow:hidden; background:#12233a;
+    box-shadow:0 4px 14px rgba(0,0,0,.5); }
+  #minimap { width:184px; height:184px; display:block; }
+  #packages { position:absolute; left:14px; bottom:206px; font-size:13px; color:#ffe9b0; text-shadow:0 1px 3px #000; }
+  #dialogue { position:absolute; left:50%; bottom:110px; transform:translateX(-50%); width:min(620px,80vw);
+    background:rgba(5,8,20,.78); border-left:4px solid #ff5e8a; border-radius:4px; padding:10px 14px;
+    font-size:16px; line-height:1.35; text-shadow:0 1px 2px #000; }
+  #dialogue .who { color:#ff9ecb; font-weight:700; letter-spacing:1px; display:block; font-size:12px; margin-bottom:2px; }
+  #toast { position:absolute; left:50%; top:22%; transform:translateX(-50%); font-size:20px; font-weight:700;
+    color:#ffe9b0; text-shadow:0 2px 6px #000; opacity:0; transition:opacity .3s; }
+  #prompt { position:absolute; left:50%; bottom:64px; transform:translateX(-50%); font-size:16px;
+    background:rgba(5,10,25,.65); padding:6px 14px; border-radius:20px; border:1px solid rgba(255,255,255,.35);
+    text-shadow:0 1px 2px #000; }
+  #crosshair { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:22px;
+    color:rgba(255,255,255,.9); text-shadow:0 0 4px #000; }
+  #busted-bar-wrap { position:absolute; left:50%; top:58%; transform:translateX(-50%); width:240px; text-align:center; }
+  #busted-label { font-size:13px; letter-spacing:3px; color:#ff8080; text-shadow:0 1px 3px #000; }
+  #busted-bar { height:8px; background:rgba(0,0,0,.6); border:1px solid #ff8080; border-radius:4px; overflow:hidden; }
+  #busted-fill { height:100%; width:0%; background:#ff4040; }
+
+  /* ---------- Menus ---------- */
+  .screen { position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; text-align:center; background:linear-gradient(180deg, rgba(10,16,40,.55), rgba(30,8,40,.72)); }
+  .game-title { font-size:64px; font-weight:900; letter-spacing:2px; margin:0; line-height:.95;
+    background:linear-gradient(180deg,#ffe259,#ffa751 45%,#ff5e8a); -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 4px 10px rgba(0,0,0,.6)); }
+  .game-sub { font-size:22px; letter-spacing:8px; color:#7bf1e8; margin:6px 0 14px; text-shadow:0 2px 6px #000; }
+  .story { max-width:640px; font-size:16px; line-height:1.5; color:#f3f6ff; text-shadow:0 1px 3px #000; margin:0 20px 16px; }
+  .menu-btn { pointer-events:auto; cursor:pointer; margin:5px; padding:11px 34px; font-size:18px; font-weight:700;
+    letter-spacing:2px; color:#10131f; background:linear-gradient(180deg,#ffe259,#ffa751); border:none; border-radius:6px;
+    box-shadow:0 4px 12px rgba(0,0,0,.45); }
+  .menu-btn:hover { filter:brightness(1.12); }
+  .menu-btn.secondary { background:linear-gradient(180deg,#dfe8ff,#9fb6dd); font-size:15px; padding:9px 26px; }
+  .controls { margin-top:16px; font-size:13.5px; line-height:1.75; color:#dfe8ff; text-shadow:0 1px 3px #000;
+    background:rgba(5,10,25,.5); padding:10px 22px; border-radius:8px; }
+  .controls b { color:#ffe259; }
+  #end-title { font-size:56px; font-weight:900; letter-spacing:4px; text-shadow:0 4px 14px #000; }
+  #saved-indicator { position:fixed; right:16px; bottom:86px; z-index:6; font-size:13px; color:#8dffa8;
+    text-shadow:0 1px 3px #000; opacity:0; transition:opacity .4s; pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="game-canvas"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="hud-top-left">
+    <div class="bar-label">HEALTH</div>
+    <div class="bar"><div id="health-fill"></div></div>
+    <div class="bar-label">ARMOR</div>
+    <div class="bar"><div id="armor-fill"></div></div>
+  </div>
+  <div id="hud-top-right">
+    <div id="cash">$0</div>
+    <div id="stars"></div>
+    <div id="clock">12:00</div>
+  </div>
+  <div id="objective-wrap">
+    <div id="mission-title"></div>
+    <div id="objective"></div>
+  </div>
+  <div id="minimap-wrap"><canvas id="minimap" width="184" height="184"></canvas></div>
+  <div id="packages"></div>
+  <div id="weapon-box">
+    <div id="weapon-name">PISTOL</div>
+    <div id="weapon-ammo">12 / &infin;</div>
+  </div>
+  <div id="dialogue" class="hidden"><span class="who"></span><span class="text"></span></div>
+  <div id="toast"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="crosshair" class="hidden">+</div>
+  <div id="busted-bar-wrap" class="hidden">
+    <div id="busted-label">BUSTED</div>
+    <div id="busted-bar"><div id="busted-fill"></div></div>
+  </div>
+</div>
+<div id="saved-indicator">&#128190; Game Saved</div>
+
+<div id="start-screen" class="screen">
+  <h1 class="game-title">NEON HARBOR</h1>
+  <div class="game-sub">V I C E &nbsp; R U N</div>
+  <p class="story">Solmara, 1987. You are <b>Rico Alvarez</b>, a wheelman fresh off the boat with empty pockets
+    and a borrowed name. The Harbor Kings run the docks, the cops run the sirens, and everybody in this
+    sun-soaked city wants a cut. Steal rides, run jobs, dodge the law &mdash; and build your legend one
+    neon night at a time.</p>
+  <div>
+    <button class="menu-btn" id="btn-new">NEW GAME</button>
+    <button class="menu-btn secondary hidden" id="btn-continue">CONTINUE</button>
+  </div>
+  <div class="controls">
+    <b>W A S D</b> move / drive &nbsp;&bull;&nbsp; <b>Mouse</b> camera &amp; aim (click game to lock) &nbsp;&bull;&nbsp; <b>Shift</b> sprint<br>
+    <b>E / F</b> enter / exit car &nbsp;&bull;&nbsp; <b>Space</b> handbrake / jump &nbsp;&bull;&nbsp; <b>Left Mouse</b> shoot<br>
+    <b>R</b> reload &nbsp;&bull;&nbsp; <b>P</b> save game &nbsp;&bull;&nbsp; <b>Esc / M</b> pause
+  </div>
+</div>
+
+<div id="pause-screen" class="screen hidden">
+  <h1 class="game-title" style="font-size:44px;">PAUSED</h1>
+  <p class="story" id="pause-stats"></p>
+  <div>
+    <button class="menu-btn" id="btn-resume">RESUME</button>
+    <button class="menu-btn secondary" id="btn-save">SAVE GAME</button>
+    <button class="menu-btn secondary" id="btn-quit">QUIT TO TITLE</button>
+  </div>
+</div>
+
+<div id="end-screen" class="screen hidden">
+  <div id="end-title">WASTED</div>
+  <p class="story" id="end-text"></p>
+  <button class="menu-btn" id="btn-respawn">RESPAWN</button>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script src="./src/util.js"></script>
+<script src="./src/audio.js"></script>
+<script src="./src/save.js"></script>
+<script src="./src/city.js"></script>
+<script src="./src/vehicles.js"></script>
+<script src="./src/pedestrians.js"></script>
+<script src="./src/player.js"></script>
+<script src="./src/police.js"></script>
+<script src="./src/combat.js"></script>
+<script src="./src/missions.js"></script>
+<script src="./src/hud.js"></script>
+<script src="./src/main.js"></script>
+</body>
+</html>
