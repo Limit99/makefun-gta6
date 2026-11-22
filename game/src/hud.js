@@ -67,18 +67,25 @@ NH.HUD = (function () {
 
     if (dialogueTimer > 0) { dialogueTimer -= dt; if (dialogueTimer <= 0) el.dialogue.classList.add('hidden'); }
     if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) el.toast.style.opacity = '0'; }
-    drawMinimap(G);
+    // Round 3: the minimap redraws at ~15 Hz, not every frame
+    mapTimer -= dt;
+    if (mapTimer <= 0) { mapTimer = 1 / 15; drawMinimap(G); }
   }
 
   // --- minimap ---
   const MAP_WORLD = 460, MAP_PX = 184;
+  let mapCache = null, mapTimer = 0;
   function w2m(x, z) {
     const s = MAP_PX / MAP_WORLD;
     return [92 + (x - 30) * s, 92 + z * s];
   }
-  function drawMinimap(G) {
-    if (!mapCtx) return;
-    const c = mapCtx;
+  // Round 3: the static layer (water, land, beach, road grid) never
+  // changes, so it is painted once onto an offscreen canvas and blitted;
+  // only blips/markers/the player arrow are drawn per minimap refresh.
+  function buildMapCache() {
+    mapCache = document.createElement('canvas');
+    mapCache.width = mapCache.height = MAP_PX;
+    const c = mapCache.getContext('2d');
     c.fillStyle = '#274b63'; c.fillRect(0, 0, MAP_PX, MAP_PX);      // water
     const [lx, ly] = w2m(-178, -178), [rx] = w2m(219, 0);
     c.fillStyle = '#c9b489'; c.fillRect(lx, ly, rx - lx, MAP_PX);    // land
@@ -90,6 +97,12 @@ NH.HUD = (function () {
       const [, hz] = w2m(0, s); c.moveTo(0, hz); c.lineTo(MAP_PX, hz);
     }
     c.stroke();
+  }
+  function drawMinimap(G) {
+    if (!mapCtx) return;
+    if (!mapCache) buildMapCache();
+    const c = mapCtx;
+    c.drawImage(mapCache, 0, 0);
     // pickups
     c.fillStyle = '#39d0d8';
     for (const pk of G.pickups) {

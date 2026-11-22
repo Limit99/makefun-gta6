@@ -73,3 +73,48 @@ NH.rayVsBox2D = function (ox, oz, dx, dz, box) {
   }
   return tmin;
 };
+
+// Merge indexed BufferGeometries that share the same attributes into one
+// geometry, keeping each source's baked transform and UVs. Round 3 uses
+// this to collapse static city geometry and repeated car parts into single
+// draw calls.
+NH.mergeGeos = function (geos) {
+  let vTotal = 0, iTotal = 0;
+  for (const g of geos) {
+    vTotal += g.attributes.position.count;
+    iTotal += g.index ? g.index.count : g.attributes.position.count;
+  }
+  const out = new THREE.BufferGeometry();
+  for (const name of Object.keys(geos[0].attributes)) {
+    const a0 = geos[0].attributes[name];
+    const arr = new a0.array.constructor(vTotal * a0.itemSize);
+    let off = 0;
+    for (const g of geos) {
+      const a = g.attributes[name];
+      arr.set(a.array, off * a0.itemSize);
+      off += a.count;
+    }
+    out.setAttribute(name, new THREE.BufferAttribute(arr, a0.itemSize));
+  }
+  const idx = new (vTotal > 65535 ? Uint32Array : Uint16Array)(iTotal);
+  let io = 0, vo = 0;
+  for (const g of geos) {
+    const n = g.attributes.position.count;
+    if (g.index) { const ia = g.index.array; for (let i = 0; i < ia.length; i++) idx[io++] = ia[i] + vo; }
+    else for (let i = 0; i < n; i++) idx[io++] = i + vo;
+    vo += n;
+  }
+  out.setIndex(new THREE.BufferAttribute(idx, 1));
+  return out;
+};
+
+// Fill a geometry's color attribute with one tint, for vertex-colour merges
+// (merged buildings keep their per-building pastel that way).
+NH.tintGeo = function (geo, hex) {
+  const c = new THREE.Color(hex);
+  const n = geo.attributes.position.count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  return geo;
+};

@@ -9,6 +9,7 @@
   const seed = parseInt(params.get('seed') || '1', 10) || 1;
   NH.rng = NH.makeRng(seed * 7919 + 13);
   const shotName = params.get('shot');
+  const benchName = params.get('bench');
 
   // ---------- renderer / scene ----------
   const canvas = document.getElementById('game-canvas');
@@ -29,8 +30,8 @@
   const sun = new THREE.DirectionalLight(0xfff2d8, 1.15);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -95; sun.shadow.camera.right = 95;
-  sun.shadow.camera.top = 95; sun.shadow.camera.bottom = -95;
+  sun.shadow.camera.left = -78; sun.shadow.camera.right = 78;
+  sun.shadow.camera.top = 78; sun.shadow.camera.bottom = -78;
   sun.shadow.camera.far = 500;
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6; // kills the striped shadow acne on slabs/roads
@@ -396,8 +397,8 @@
       G.objective = 'Take out the Harbor Kings (1/3)';
       NH.Missions.setMarker(196, -84, 0xff5e5e);
       document.getElementById('dialogue').classList.add('hidden');
-      const e1 = NH.Combat.spawnEnemy(scene, 188, -82); G.peds.push(e1);
-      const e2 = NH.Combat.spawnEnemy(scene, 197, -73); G.peds.push(e2);
+      const e1 = NH.Combat.spawnEnemy(scene, 186, -58); e1.holdPosition = true; G.peds.push(e1);
+      const e2 = NH.Combat.spawnEnemy(scene, 200, -56); e2.holdPosition = true; G.peds.push(e2);
       const e3 = NH.Combat.spawnEnemy(scene, 183, -76);
       e3.dead = true; e3.health = 0; NH.Humans.layDown(e3.fig); G.peds.push(e3);
       NH.Police.addHeat(G, 70);
@@ -425,10 +426,72 @@
     updateSky();
   }
   if (shotName) stageShot(shotName);
+  else if (benchName) stageShot(benchName);
+
+  // ---------- bench mode (?bench=<scene>): frame-cost report ----------
+  // Runs the staged scene with all AI live, counts rAF frames, then writes
+  // one BENCH line into document.title and a #bench-out div for headless
+  // extraction. Draw calls / triangles are the machine-independent numbers.
+  const bench = benchName ? { frames: 0, start: -1, done: false } : null;
+  if (bench) {
+    const out = document.createElement('div');
+    out.id = 'bench-out';
+    out.style.cssText = 'position:fixed;left:4px;top:4px;z-index:99;color:#0f0;font:12px monospace;';
+    out.textContent = 'BENCH running';
+    document.body.appendChild(out);
+  }
+  function benchTick() {
+    if (!bench || bench.done) return;
+    const now = performance.now();
+    if (bench.start < 0) bench.start = now;
+    bench.frames++;
+    const elapsed = now - bench.start;
+    if (bench.frames >= 300 || (elapsed >= 15000 && bench.frames >= 40)) {
+      bench.done = true;
+      const avg = elapsed / Math.max(1, bench.frames);
+      const info = renderer.info.render;
+      const line = 'BENCH scene=' + benchName +
+        ' avg_ms=' + avg.toFixed(2) +
+        ' fps=' + (1000 / Math.max(0.01, avg)).toFixed(1) +
+        ' calls=' + info.calls +
+        ' tris=' + info.triangles;
+      document.title = line;
+      const out = document.getElementById('bench-out');
+      if (out) out.textContent = line;
+    }
+  }
 
   // ---------- main loop ----------
   const clockT = new THREE.Clock();
   let promptCd = 0;
+
+  // Round 3: shadow casters are limited to the player, police, and
+  // whatever is near the player (refreshed ~3x a second). Distant traffic
+  // and pedestrians stop paying shadow-pass cost; they still render and
+  // simulate exactly as before. Part lists are cached on first sight.
+  let shadowCd = 0;
+  function collectShadowParts(root) {
+    const parts = [];
+    root.traverse(function (o) { if (o.isMesh && o.castShadow) parts.push(o); });
+    return parts;
+  }
+  function refreshShadowCasters() {
+    const px = G.playerPos.x, pz = G.playerPos.z;
+    const R2 = 55 * 55;
+    for (const car of G.cars) {
+      if (!car.shadowParts) car.shadowParts = collectShadowParts(car.mesh);
+      const near = car.kind === 'police' || car === player.car ||
+        NH.dist2(px, pz, car.mesh.position.x, car.mesh.position.z) < R2;
+      for (const m of car.shadowParts) m.castShadow = near;
+    }
+    for (const ped of G.peds) {
+      if (!ped.shadowParts) ped.shadowParts = collectShadowParts(ped.fig.group);
+      const near = NH.dist2(px, pz, ped.mesh.position.x, ped.mesh.position.z) < R2;
+      for (const m of ped.shadowParts) m.castShadow = near;
+    }
+    if (!player.shadowParts) player.shadowParts = collectShadowParts(player.fig.group);
+    for (const m of player.shadowParts) m.castShadow = true;
+  }
   function frame() {
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, clockT.getDelta());
@@ -482,10 +545,13 @@
         }
       }
     }
+    shadowCd -= dt;
+    if (shadowCd <= 0) { shadowCd = 0.33; refreshShadowCasters(); }
     NH.Combat.updateFx(G.fx, dt);
     updateSky();
     updateCamera(dt);
     renderer.render(scene, camera);
+    benchTick();
   }
   frame();
 

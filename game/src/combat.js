@@ -3,6 +3,7 @@
 // particles, and the enemy gunmen who shoot back during missions.
 NH.Combat = (function () {
   const MAX_PARTICLES = 260;
+  const scratchColor = new THREE.Color(); // Round 3: bursts reuse this, no per-hit allocation
 
   function initFx(scene) {
     const geo = new THREE.BufferGeometry();
@@ -39,7 +40,7 @@ NH.Combat = (function () {
   }
 
   function burst(fx, x, y, z, colorHex, n, speed, up) {
-    const c = new THREE.Color(colorHex);
+    const c = scratchColor.setHex(colorHex);
     for (let k = 0; k < n; k++) {
       const i = fx.next; fx.next = (fx.next + 1) % MAX_PARTICLES;
       const p = fx.parts[i];
@@ -132,9 +133,10 @@ NH.Combat = (function () {
     const want = NH.angleTo(p.x, p.z, pp.x, pp.z);
     ped.heading = NH.angleLerp(ped.heading, want, dt * 8);
     let move = 0;
-    if (d > 20) move = 3.4;                 // close in
+    if (ped.holdPosition) move = 0;         // staged gunmen stand and fight in place
+    else if (d > 20) move = 3.4;            // close in
     else if (d < 9) move = -2.2;            // back off
-    else { // strafe sideways while fighting
+    else if (!ped.holdPosition) { // strafe sideways while fighting
       p.x += Math.sin(ped.heading + Math.PI / 2) * ped.strafeDir * 1.1 * dt;
       p.z += Math.cos(ped.heading + Math.PI / 2) * ped.strafeDir * 1.1 * dt;
       if (NH.rng() < dt * 0.25) ped.strafeDir *= -1;

@@ -6,7 +6,7 @@ NH.Vehicles = (function () {
   const CAR_COLORS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x2ecc71, 0x9b59b6, 0xecf0f1, 0xe67e22, 0x1abc9c, 0xfd79a8, 0x95a5a6];
   const bodyGeo = new THREE.BoxGeometry(2.0, 0.55, 4.3);
   const cabinGeo = new THREE.BoxGeometry(1.7, 0.5, 2.1);
-  const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 10);
+  const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 8);
   const wheelMat = new THREE.MeshLambertMaterial({ color: 0x16181d });
   const glassMat = new THREE.MeshLambertMaterial({ color: 0x1d2f45 });
   const chromeMat = new THREE.MeshLambertMaterial({ color: 0xb9c2cc });
@@ -14,6 +14,22 @@ NH.Vehicles = (function () {
   const tailMat = new THREE.MeshLambertMaterial({ color: 0x7a1020, emissive: 0x33060c });
 
   let carId = 0;
+
+  // Round 3: wheels live in one InstancedMesh per car. The dummy replays
+  // the old per-wheel Euler (spin on X, steer on Y for the front pair,
+  // fixed Z roll that lays the cylinder on its side) into instance
+  // matrices, so the visual is unchanged at a quarter of the draw calls.
+  const WHEEL_POS = [[-0.95, 1.45], [0.95, 1.45], [-0.95, -1.45], [0.95, -1.45]];
+  const wheelDummy = new THREE.Object3D();
+  function writeWheels(wheels, steer) {
+    for (let i = 0; i < 4; i++) {
+      wheelDummy.position.set(WHEEL_POS[i][0], 0.38, WHEEL_POS[i][1]);
+      wheelDummy.rotation.set(wheels.spin, i < 2 ? steer * 0.42 : 0, Math.PI / 2);
+      wheelDummy.updateMatrix();
+      wheels.mesh.setMatrixAt(i, wheelDummy.matrix);
+    }
+    wheels.mesh.instanceMatrix.needsUpdate = true;
+  }
 
   function makeCar(kind, color) {
     const g = new THREE.Group();
@@ -35,18 +51,20 @@ NH.Vehicles = (function () {
       const spoiler = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.08, 0.5), bodyMat);
       spoiler.position.set(0, 1.0, -2.0); g.add(spoiler);
     }
-    const wheels = [];
-    for (const [wx, wz] of [[-0.95, 1.45], [0.95, 1.45], [-0.95, -1.45], [0.95, -1.45]]) {
-      const w = new THREE.Mesh(wheelGeo, wheelMat);
-      w.rotation.z = Math.PI / 2; w.position.set(wx, 0.38, wz);
-      g.add(w); wheels.push(w);
-    }
-    for (const s of [-0.6, 0.6]) {
-      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.16, 0.06), headMat);
-      hl.position.set(s, 0.62, 2.16); g.add(hl);
-      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.06), tailMat);
-      tl.position.set(s, 0.66, -2.16); g.add(tl);
-    }
+    const wheelMesh = new THREE.InstancedMesh(wheelGeo, wheelMat, 4);
+    wheelMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    g.add(wheelMesh);
+    const wheels = { mesh: wheelMesh, spin: 0 };
+    writeWheels(wheels, 0);
+    // head/tail lights: one merged mesh per pair (was four draw calls)
+    const headGeo = NH.mergeGeos([-0.6, 0.6].map(function (s) {
+      const b = new THREE.BoxGeometry(0.42, 0.16, 0.06); b.translate(s, 0.62, 2.16); return b;
+    }));
+    g.add(new THREE.Mesh(headGeo, headMat));
+    const tailGeo = NH.mergeGeos([-0.6, 0.6].map(function (s) {
+      const b = new THREE.BoxGeometry(0.42, 0.14, 0.06); b.translate(s, 0.66, -2.16); return b;
+    }));
+    g.add(new THREE.Mesh(tailGeo, tailMat));
     let lightbar = null, lightRed = null, lightBlue = null;
     if (isPolice) {
       lightbar = new THREE.Group();
@@ -95,12 +113,9 @@ NH.Vehicles = (function () {
     car.mesh.position.y = 0;
     car.mesh.rotation.y = car.heading;
 
-    // wheels: spin + front steer visual
-    const spin = car.speed * dt / 0.38;
-    for (let i = 0; i < 4; i++) {
-      car.wheels[i].rotation.x += spin;
-      if (i < 2) car.wheels[i].rotation.y = steer * 0.42;
-    }
+    // wheels: spin + front steer, written into the instanced wheel mesh
+    car.wheels.spin += car.speed * dt / 0.38;
+    writeWheels(car.wheels, steer);
 
     // world bounds (ocean side open to the pier, then water stops you)
     const p = car.mesh.position;
